@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Triage Pediátrico (PAT + ESI)</title>
+<style>
+  body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:900px;margin:0 auto;padding:16px}
+  h1{font-size:1.4rem;margin:0 0 8px}
+  fieldset{border:1px solid #ddd;border-radius:12px;padding:12px;margin:12px 0}
+  legend{font-weight:700}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  label{display:block;font-size:.95rem}
+  input,select{width:100%;padding:8px;border:1px solid #ccc;border-radius:8px}
+  .chip{display:inline-block;margin:4px 8px 0 0}
+  .chip input{margin-right:6px}
+  .out{padding:14px;border-radius:12px;margin-top:12px;font-weight:700}
+  .rojo{background:#ffe5e5;border:1px solid #ff6b6b}
+  .naranja{background:#fff1e0;border:1px solid #ff9f43}
+  .amarillo{background:#fff9db;border:1px solid #ffd43b}
+  .verde{background:#e9f7ef;border:1px solid #2ecc71}
+  .azul{background:#e7f1ff;border:1px solid #3498db}
+  button{padding:10px 14px;border-radius:10px;border:0;background:#0d6efd;color:#fff;font-weight:700}
+</style>
+</head>
+<body>
+  <h1>TRIAGE PEDIÁTRICO – PAT + ESI</h1>
+
+  <fieldset>
+    <legend>1) Detección rápida (PAT)</legend>
+    <div class="chip"><label><input type="checkbox" id="apnea"> Apnea/respiración agónica</label></div>
+    <div class="chip"><label><input type="checkbox" id="inconsciente"> Inconsciente/AVPU = U</label></div>
+    <div class="chip"><label><input type="checkbox" id="respSevera"> Dificultad resp. severa (quejido/estridor/retracciones severas)</label></div>
+    <div class="chip"><label><input type="checkbox" id="cianochoque"> Cianosis marcada / signos de choque</label></div>
+    <div class="chip"><label><input type="checkbox" id="convulsion"> Convulsión activa</label></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>2) Signos vitales y alto riesgo</legend>
+    <div class="row">
+      <label>Edad:
+        <select id="edad">
+          <option value="neonato">Neonato (&lt;28 d)</option>
+          <option value="lactante" selected>Lactante (1–12 m)</option>
+          <option value="preescolar">Preescolar (1–5 a)</option>
+          <option value="escolar">Escolar (6–12 a)</option>
+          <option value="adolescente">Adolescente (≥13 a)</option>
+        </select>
+      </label>
+      <label>SatO₂ (%): <input type="number" id="sato2" min="50" max="100" placeholder="p.ej. 94"></label>
+      <label>FC (lpm): <input type="number" id="fc" min="30" max="250"></label>
+      <label>FR (rpm): <input type="number" id="fr" min="10" max="120"></label>
+      <label>TA sistólica (mmHg): <input type="number" id="tas" min="40" max="180"></label>
+      <label>Temperatura (°C): <input type="number" step="0.1" id="temp" min="33" max="42"></label>
+    </div>
+    <div class="row">
+      <label>AVPU:
+        <select id="avpu">
+          <option value="A" selected>A</option><option value="V">V</option><option value="P">P</option><option value="U">U</option>
+        </select>
+      </label>
+      <label>Dolor (0–10): <input type="number" id="dolor" min="0" max="10" value="0"></label>
+      <label><input type="checkbox" id="inmuno"> Inmunocompromiso</label>
+      <label><input type="checkbox" id="fiebre3m"> Fiebre &lt; 3 meses</label>
+      <label><input type="checkbox" id="mecanismo"> Mecanismo de alto riesgo</label>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>3) Recursos esperados (marcar)</legend>
+    <div class="chip"><label><input type="checkbox" class="rec"> Labs</label></div>
+    <div class="chip"><label><input type="checkbox" class="rec"> Radiografía/US/TC</label></div>
+    <div class="chip"><label><input type="checkbox" class="rec"> Nebulización/O₂/Capnografía</label></div>
+    <div class="chip"><label><input type="checkbox" class="rec"> Líquidos o fármacos IV</label></div>
+    <div class="chip"><label><input type="checkbox" class="rec"> Procedimiento (suturas, reducción, yeso)</label></div>
+    <div class="chip"><label><input type="checkbox" class="rec"> Interconsulta/Observación &gt; 2 h</label></div>
+  </fieldset>
+
+  <button id="calcular">Calcular TRIAGE</button>
+
+  <div id="resultado" class="out" style="display:none"></div>
+  <div id="acciones"></div>
+
+<script>
+const normalRanges = {
+  neonato:   { tasMin: 60, fcHi: 180, frHi: 60 },
+  lactante:  { tasMin: 70, fcHi: 180, frHi: 50 },
+  preescolar:{ tasMin: 75, fcHi: 160, frHi: 40 },
+  escolar:   { tasMin: 80, fcHi: 140, frHi: 30 },
+  adolescente:{ tasMin: 90, fcHi: 120, frHi: 24 }
+};
+// Ajusta los umbrales según tus guías.
+
+function nivelColor(n){
+  return ["","rojo","naranja","amarillo","verde","azul"][n];
+}
+function textoAcciones(n){
+  const t = {
+    1:"Reanimación inmediata, vía aérea, monitor, accesos, equipo completo.",
+    2:"Prioridad alta; monitor, O₂ si precisa, Rx/Labs dirigidos, reevaluar frecuente.",
+    3:"Evaluación completa, ≥2 recursos; reevaluar 30–60 min.",
+    4:"1 recurso; manejo ambulatorio probable.",
+    5:"0 recursos; orientaciones/cuidados mínimos."
+  }; return t[n];
+}
+
+document.getElementById('calcular').onclick = () => {
+  if (['apnea','inconsciente','respSevera','cianochoque','convulsion'].some(id=>document.getElementById(id).checked)){
+    show(1); return;
+  }
+  const edad = document.getElementById('edad').value;
+  const {tasMin, fcHi, frHi} = normalRanges[edad];
+  const sato2 = +document.getElementById('sato2').value || 100;
+  const fc = +document.getElementById('fc').value || 0;
+  const fr = +document.getElementById('fr').value || 0;
+  const tas = +document.getElementById('tas').value || 999;
+  const temp = +document.getElementById('temp').value || 0;
+  const avpu = document.getElementById('avpu').value;
+  const dolor = +document.getElementById('dolor').value || 0;
+  const inmuno = document.getElementById('inmuno').checked;
+  const fiebre3m = document.getElementById('fiebre3m').checked;
+  const mecanismo = document.getElementById('mecanismo').checked;
+
+  const highRisk = (
+    sato2 < 90 || tas < tasMin || fc > fcHi || fr > frHi ||
+    avpu !== 'A' || dolor >= 8 || (fiebre3m && temp >= 38) ||
+    (inmuno && temp >= 38) || mecanismo
+  );
+  if (highRisk){ show(2); return; }
+
+  const recursos = [...document.querySelectorAll('.rec')].filter(x=>x.checked).length;
+  if (recursos >= 2){ show(3); }
+  else if (recursos === 1){ show(4); }
+  else { show(5); }
+
+  function show(n){
+    const res = document.getElementById('resultado');
+    res.className = 'out ' + nivelColor(n);
+    res.style.display='block';
+    res.textContent = `Nivel ESI-${n}`;
+    document.getElementById('acciones').textContent = textoAcciones(n);
+  }
+};
+</script>
+</body>
+</html>
